@@ -1,0 +1,127 @@
+name: Matrix Build - Node.js Tests
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  test-frontend:
+    name: Frontend | Node ${{ matrix.node-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Don't cancel all jobs if one matrix combo fails
+      fail-fast: false
+      matrix:
+        node-version: ["14.x", "16.x", "18.x", "20.x"]
+        os: [ubuntu-latest, windows-latest]
+        # Exclude combinations that are known to be incompatible
+        exclude:
+          - os: windows-latest
+            node-version: "14.x"
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Display Node.js and npm versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Jest tests
+        run: npm test -- --watchAll=false --ci
+        env:
+          CI: true
+
+  test-backend:
+    name: Backend | Node ${{ matrix.node-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["14.x", "16.x", "18.x", "20.x"]
+        os: [ubuntu-latest, windows-latest]
+        # Include an extra variable per combo to customize behaviour
+        include:
+          - node-version: "20.x"
+            os: ubuntu-latest
+            is_lts: true
+          - node-version: "18.x"
+            os: ubuntu-latest
+            is_lts: true
+        exclude:
+          - os: windows-latest
+            node-version: "14.x"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Display Node.js and npm versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Mocha tests
+        run: npm test
+        env:
+          CI: true
+          NODE_ENV: test
+          PORT: 8081
+
+      - name: Flag LTS build
+        if: ${{ matrix.is_lts == true }}
+        run: echo "✅ This is an LTS Node.js version (${{ matrix.node-version }}) — coverage upload candidate."
+
+  # Summary job that requires ALL matrix jobs to pass
+  matrix-success:
+    name: All Matrix Jobs Passed
+    runs-on: ubuntu-latest
+    needs: [test-frontend, test-backend]
+    if: always()
+
+    steps:
+      - name: Check matrix results
+        run: |
+          if [ "${{ needs.test-frontend.result }}" = "success" ] && [ "${{ needs.test-backend.result }}" = "success" ]; then
+            echo "✅ All matrix jobs completed successfully."
+          else
+            echo "❌ One or more matrix jobs failed."
+            echo "  Frontend result : ${{ needs.test-frontend.result }}"
+            echo "  Backend result  : ${{ needs.test-backend.result }}"
+            exit 1
+          fi
