@@ -1,0 +1,121 @@
+name: Environment Variables Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      custom_message:
+        description: "Custom message to print"
+        required: true
+        default: "Hello from GitHub Actions!"
+      environment:
+        description: "Target environment"
+        required: true
+        default: "development"
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      author_name:
+        description: "Your name"
+        required: false
+        default: "GitHub User"
+
+# Workflow-level environment variables
+env:
+  APP_NAME: "React-Express-MySQL App"
+  REPO_OWNER: ${{ github.repository_owner }}
+  WORKFLOW_VERSION: "1.0.0"
+
+jobs:
+  print-message:
+    name: Print Custom Message with Env Vars
+    runs-on: ubuntu-latest
+
+    # Job-level environment variables
+    env:
+      TARGET_ENV: ${{ github.event.inputs.environment }}
+      AUTHOR: ${{ github.event.inputs.author_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step using built-in GitHub context variables
+      - name: Print GitHub Context Info
+        run: |
+          echo "============================================"
+          echo "  📋 GitHub Context Information"
+          echo "============================================"
+          echo "  Repository  : ${{ github.repository }}"
+          echo "  Branch      : ${{ github.ref_name }}"
+          echo "  Triggered by: ${{ github.actor }}"
+          echo "  Run ID      : ${{ github.run_id }}"
+          echo "  Event       : ${{ github.event_name }}"
+          echo "============================================"
+
+      # Step using workflow-level env vars
+      - name: Print Workflow Environment Variables
+        run: |
+          echo "============================================"
+          echo "  🌍 Workflow-Level Environment Variables"
+          echo "============================================"
+          echo "  APP_NAME        : $APP_NAME"
+          echo "  REPO_OWNER      : $REPO_OWNER"
+          echo "  WORKFLOW_VERSION: $WORKFLOW_VERSION"
+          echo "============================================"
+
+      # Step using job-level env vars
+      - name: Print Job Environment Variables
+        run: |
+          echo "============================================"
+          echo "  💼 Job-Level Environment Variables"
+          echo "============================================"
+          echo "  TARGET_ENV : $TARGET_ENV"
+          echo "  AUTHOR     : $AUTHOR"
+          echo "============================================"
+
+      # Step using step-level env vars + user inputs
+      - name: Print Custom Message
+        env:
+          CUSTOM_MESSAGE: ${{ github.event.inputs.custom_message }}
+          TIMESTAMP: ${{ github.event.created_at }}
+        run: |
+          echo "============================================"
+          echo "  💬 Custom Message"
+          echo "============================================"
+          echo ""
+          echo "  Message : $CUSTOM_MESSAGE"
+          echo "  From    : $AUTHOR"
+          echo "  App     : $APP_NAME v$WORKFLOW_VERSION"
+          echo "  Env     : $TARGET_ENV"
+          echo ""
+          echo "============================================"
+
+      # Demonstrate conditional logic using env vars
+      - name: Environment-specific action
+        run: |
+          echo "🔧 Running steps for environment: $TARGET_ENV"
+          if [ "$TARGET_ENV" = "production" ]; then
+            echo "🚀 Production mode: extra validation enabled."
+          elif [ "$TARGET_ENV" = "staging" ]; then
+            echo "🧪 Staging mode: integration checks enabled."
+          else
+            echo "🛠️  Development mode: verbose logging enabled."
+          fi
+
+      # Set an output variable for downstream jobs
+      - name: Export a step output variable
+        id: set_output
+        run: |
+          FINAL_MSG="${{ github.event.inputs.custom_message }} — deployed to $TARGET_ENV by $AUTHOR"
+          echo "final_message=$FINAL_MSG" >> $GITHUB_OUTPUT
+          echo "✅ Output variable set: $FINAL_MSG"
+
+      - name: Read and confirm step output
+        run: |
+          echo "============================================"
+          echo "  📤 Step Output Variable"
+          echo "============================================"
+          echo "  final_message: ${{ steps.set_output.outputs.final_message }}"
+          echo "============================================"
