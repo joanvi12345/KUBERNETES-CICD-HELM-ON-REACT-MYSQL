@@ -1,0 +1,59 @@
+services:
+  backend:
+    image: react-express-mysql-backend:swarm
+    command: npm run start-watch
+    environment:
+      - DATABASE_DB=example
+      - DATABASE_USER=root
+      - DATABASE_PASSWORD=/run/secrets/db-password
+      - DATABASE_HOST=db
+      - NODE_ENV=development
+    ports:
+      - "80:80"
+      - "9229:9229"
+      - "9230:9230"
+    secrets:
+      - source: db-password
+        target: db-password
+    networks:
+      - public
+      - private
+
+  db:
+    image: mysql:8.0.27
+    command: '--default-authentication-plugin=mysql_native_password'
+    secrets:
+      - source: db-password
+        target: db-password
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - private
+    environment:
+      - MYSQL_DATABASE=example
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
+      - MYSQL_ROOT_HOST=%
+
+  frontend:
+    image: react-express-mysql-frontend:swarm
+    ports:
+      - "3000:3000"
+    networks:
+      - public
+
+networks:
+  public:
+    external: true
+    name: my_custom_network
+
+  private:
+    driver: overlay
+    attachable: true
+
+volumes:
+  db-data:
+
+secrets:
+  db-password:
+    external: true
+    name: db_password

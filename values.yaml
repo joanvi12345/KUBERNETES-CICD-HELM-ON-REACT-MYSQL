@@ -1,0 +1,310 @@
+# Override the release namespace without requiring a Namespace resource in the
+# chart. Leave empty to use .Release.Namespace (including `helm install -n ...`).
+namespaceOverride: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+frontend:
+  # Used only when autoscaling.enabled is false. When autoscaling is enabled,
+  # the HPA owns the replica count.
+  replicaCount: 2
+  image:
+    repository: react-express-mysql-frontend
+    # Use an immutable, versioned tag for releases.
+    tag: swarm
+    # When set, digest takes precedence over tag (for example sha256:abc...).
+    digest: ""
+    pullPolicy: IfNotPresent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+          - type: Pods
+            value: 4
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 25
+            periodSeconds: 60
+  service:
+    name: frontend
+    type: NodePort
+    port: 3000
+    # Leave null to let Kubernetes allocate a port in the NodePort range.
+    nodePort: null
+    externalTrafficPolicy: Cluster
+  # React's development server writes build artifacts here. An emptyDir keeps
+  # the cache writable when the container runs as the non-root user below.
+  cache:
+    enabled: true
+    mountPath: /code/node_modules/.cache
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  livenessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+backend:
+  # Used only when autoscaling.enabled is false. When autoscaling is enabled,
+  # the HPA owns the replica count.
+  replicaCount: 2
+  image:
+    repository: react-express-mysql-backend
+    # Use an immutable, versioned tag for releases.
+    tag: swarm
+    # When set, digest takes precedence over tag (for example sha256:abc...).
+    digest: ""
+    pullPolicy: IfNotPresent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+          - type: Pods
+            value: 4
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 25
+            periodSeconds: 60
+  service:
+    name: backend
+    # Change to NodePort to expose the backend outside the cluster.
+    type: ClusterIP
+    port: 80
+    # Used only when type is NodePort. Leave null for automatic allocation.
+    nodePort: null
+    externalTrafficPolicy: Cluster
+  env:
+    database: example
+    databaseUser: root
+    databaseHost: db
+    nodeEnv: development
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  livenessProbe:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+mysql:
+  # This chart deploys standalone MySQL with one shared claim. Keep this at 1
+  # unless MySQL replication and per-replica storage are configured separately.
+  replicaCount: 1
+  image:
+    repository: mysql
+    tag: "8.0.27"
+    # When set, digest takes precedence over tag (for example sha256:abc...).
+    digest: ""
+    pullPolicy: IfNotPresent
+  service:
+    # Kept as "db" so DATABASE_HOST=db works without further configuration.
+    name: db
+    type: ClusterIP
+    port: 3306
+  database: example
+  rootHost: "%"
+  auth:
+    # For production, leave rootPassword empty and set existingSecret to a
+    # Secret containing secretKey.
+    rootPassword: example
+    existingSecret: ""
+    secretKey: root-password
+  persistence:
+    enabled: true
+    # Create a static hostPath PV by default for local Minikube use. Set false
+    # to let the configured StorageClass dynamically provision the claim.
+    createPersistentVolume: true
+    existingClaim: ""
+    persistentVolumeName: ""
+    persistentVolumeClaimName: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+    # "standard" is the default Minikube StorageClass. Empty disables a storage
+    # class for a chart-created static PV, or uses the cluster default when
+    # createPersistentVolume is false.
+    storageClass: standard
+    volumeMode: Filesystem
+    reclaimPolicy: Retain
+    hostPath: /data/react-express-mysql/mysql
+    hostPathType: DirectoryOrCreate
+    annotations: {}
+    persistentVolumeAnnotations: {}
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  volumePermissions:
+    enabled: true
+    image:
+      repository: busybox
+      tag: "1.36.1"
+      digest: ""
+      pullPolicy: IfNotPresent
+    user: 999
+    group: 999
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+        add:
+          - CHOWN
+      seccompProfile:
+        type: RuntimeDefault
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  startupProbe:
+    enabled: true
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+  livenessProbe:
+    enabled: true
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+imagePullSecrets: []
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: react-express-mysql.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

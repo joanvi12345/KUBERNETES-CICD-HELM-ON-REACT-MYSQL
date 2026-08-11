@@ -1,0 +1,52 @@
+{{- if and .Values.mysql.persistence.enabled (not .Values.mysql.persistence.existingClaim) }}
+{{- if .Values.mysql.persistence.createPersistentVolume }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "react-express-mysql.mysqlPersistentVolumeName" . }}
+  labels:
+    {{- include "react-express-mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+  {{- with .Values.mysql.persistence.persistentVolumeAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  capacity:
+    storage: {{ .Values.mysql.persistence.size }}
+  accessModes:
+    {{- toYaml .Values.mysql.persistence.accessModes | nindent 4 }}
+  volumeMode: {{ .Values.mysql.persistence.volumeMode }}
+  persistentVolumeReclaimPolicy: {{ .Values.mysql.persistence.reclaimPolicy }}
+  storageClassName: {{ .Values.mysql.persistence.storageClass | quote }}
+  hostPath:
+    path: {{ required "mysql.persistence.hostPath is required when createPersistentVolume is true" .Values.mysql.persistence.hostPath | quote }}
+    type: {{ .Values.mysql.persistence.hostPathType }}
+---
+{{- end }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "react-express-mysql.mysqlPersistentVolumeClaimName" . }}
+  namespace: {{ include "react-express-mysql.namespace" . }}
+  labels:
+    {{- include "react-express-mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+  {{- with .Values.mysql.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.mysql.persistence.accessModes | nindent 4 }}
+  volumeMode: {{ .Values.mysql.persistence.volumeMode }}
+  {{- if .Values.mysql.persistence.createPersistentVolume }}
+  volumeName: {{ include "react-express-mysql.mysqlPersistentVolumeName" . }}
+  storageClassName: {{ .Values.mysql.persistence.storageClass | quote }}
+  {{- else if .Values.mysql.persistence.storageClass }}
+  storageClassName: {{ .Values.mysql.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mysql.persistence.size }}
+{{- end }}

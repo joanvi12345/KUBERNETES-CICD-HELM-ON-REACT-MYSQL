@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "react-express-mysql.fullname" . }}-backend
+  namespace: {{ include "react-express-mysql.namespace" . }}
+  labels:
+    {{- include "react-express-mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "react-express-mysql.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "backend") | nindent 6 }}
+  strategy:
+    type: {{ .Values.backend.updateStrategy.type }}
+    {{- if eq .Values.backend.updateStrategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.backend.updateStrategy.rollingUpdate.maxUnavailable | quote }}
+      maxSurge: {{ .Values.backend.updateStrategy.rollingUpdate.maxSurge | quote }}
+    {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "react-express-mysql.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "backend") | nindent 8 }}
+      annotations:
+        checksum/mysql-secret: {{ include (print $.Template.BasePath "/mysql-secret.yaml") . | sha256sum }}
+        checksum/backend-config: {{ include (print $.Template.BasePath "/backend-configmap.yaml") . | sha256sum }}
+        {{- with .Values.backend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.backend.podSecurityContext | nindent 8 }}
+      containers:
+        - name: backend
+          image: {{ include "react-express-mysql.image" .Values.backend.image | quote }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.backend.securityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "react-express-mysql.backendConfigMapName" . }}
+          env:
+            - name: DATABASE_PASSWORD
+              value: /run/secrets/db-password
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          {{- if .Values.backend.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.backend.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.backend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.backend.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.backend.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.backend.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.backend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.backend.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts:
+            - name: mysql-password
+              mountPath: /run/secrets/db-password
+              subPath: db-password
+              readOnly: true
+      volumes:
+        - name: mysql-password
+          secret:
+            secretName: {{ include "react-express-mysql.mysqlSecretName" . }}
+            items:
+              - key: {{ .Values.mysql.auth.secretKey }}
+                path: db-password
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "react-express-mysql.fullname" . }}-mysql
+  namespace: {{ include "react-express-mysql.namespace" . }}
+  labels:
+    {{- include "react-express-mysql.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mysql
+spec:
+  serviceName: {{ .Values.mysql.service.name }}
+  replicas: {{ .Values.mysql.replicaCount }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "react-express-mysql.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "mysql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "react-express-mysql.selectorLabels" (dict "Chart" .Chart "Release" .Release "Values" .Values "component" "mysql") | nindent 8 }}
+      annotations:
+        checksum/mysql-secret: {{ include (print $.Template.BasePath "/mysql-secret.yaml") . | sha256sum }}
+        {{- with .Values.mysql.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.mysql.podSecurityContext | nindent 8 }}
+      {{- if .Values.mysql.volumePermissions.enabled }}
+      initContainers:
+        - name: volume-permissions
+          image: {{ include "react-express-mysql.image" .Values.mysql.volumePermissions.image | quote }}
+          imagePullPolicy: {{ .Values.mysql.volumePermissions.image.pullPolicy }}
+          command:
+            - sh
+            - -ec
+            - chown -R {{ int .Values.mysql.volumePermissions.user }}:{{ int .Values.mysql.volumePermissions.group }} /var/lib/mysql
+          securityContext:
+            {{- toYaml .Values.mysql.volumePermissions.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.mysql.volumePermissions.resources | nindent 12 }}
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+      {{- end }}
+      containers:
+        - name: mysql
+          image: {{ include "react-express-mysql.image" .Values.mysql.image | quote }}
+          imagePullPolicy: {{ .Values.mysql.image.pullPolicy }}
+          args:
+            - --default-authentication-plugin=mysql_native_password
+          securityContext:
+            {{- toYaml .Values.mysql.securityContext | nindent 12 }}
+          env:
+            - name: MYSQL_DATABASE
+              value: {{ .Values.mysql.database | quote }}
+            - name: MYSQL_ROOT_HOST
+              value: {{ .Values.mysql.rootHost | quote }}
+            - name: MYSQL_ROOT_PASSWORD_FILE
+              value: /run/secrets/db-password
+          ports:
+            - name: mysql
+              containerPort: 3306
+              protocol: TCP
+          {{- if .Values.mysql.startupProbe.enabled }}
+          startupProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - 127.0.0.1
+                - --silent
+            periodSeconds: {{ .Values.mysql.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.mysql.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.mysql.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.mysql.livenessProbe.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - 127.0.0.1
+                - --silent
+            periodSeconds: {{ .Values.mysql.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.mysql.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.mysql.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.mysql.readinessProbe.enabled }}
+          readinessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - 127.0.0.1
+                - --silent
+            periodSeconds: {{ .Values.mysql.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.mysql.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.mysql.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.mysql.resources | nindent 12 }}
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+            - name: mysql-password
+              mountPath: /run/secrets/db-password
+              subPath: db-password
+              readOnly: true
+      volumes:
+        - name: mysql-password
+          secret:
+            secretName: {{ include "react-express-mysql.mysqlSecretName" . }}
+            items:
+              - key: {{ .Values.mysql.auth.secretKey }}
+                path: db-password
+        - name: mysql-data
+          {{- if .Values.mysql.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "react-express-mysql.mysqlPersistentVolumeClaimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.mysql.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mysql.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mysql.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

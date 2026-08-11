@@ -1,0 +1,11 @@
+.git/
+.gitignore
+.idea/
+.vscode/
+backend/
+db/
+frontend/
+compose*.yaml
+output.png
+README.md
+*.tgz

@@ -1,0 +1,30 @@
+{{- $namespace := include "react-express-mysql.namespace" . -}}
+React/Express/MySQL has been deployed.
+
+Check rollout and autoscaling status:
+  kubectl get deployment,statefulset,hpa -n {{ $namespace }}
+
+Open the frontend without ingress:
+  minikube service {{ include "react-express-mysql.frontendServiceName" . }} --namespace {{ $namespace }}
+
+Print its URL:
+  minikube service {{ include "react-express-mysql.frontendServiceName" . }} --namespace {{ $namespace }} --url
+
+Test the backend from inside the cluster:
+  kubectl run connectivity-test --namespace {{ $namespace }} --rm -it \
+    --restart=Never --image=curlimages/curl:8.12.1 -- \
+    curl -fsS http://{{ include "react-express-mysql.backendServiceName" . }}/healthz
+
+Upgrade with immutable application image versions:
+  helm upgrade {{ .Release.Name }} . \
+    --namespace {{ $namespace }} \
+    --set-string frontend.image.tag=v1.1.0 \
+    --set-string backend.image.tag=v1.1.0 \
+    --atomic --wait --timeout 10m
+
+Inspect history and roll back:
+  helm history {{ .Release.Name }} --namespace {{ $namespace }}
+  helm rollback {{ .Release.Name }} <REVISION> \
+    --namespace {{ $namespace }} --wait --timeout 10m
+
+See HELM.md for service exposure, upgrade, rollback, HPA, and load examples.
