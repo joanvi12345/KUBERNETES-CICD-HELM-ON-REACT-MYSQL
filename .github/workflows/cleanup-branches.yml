@@ -1,0 +1,152 @@
+name: Scheduled Branch Cleanup
+
+on:
+  # Runs every Monday at 08:00 UTC
+  schedule:
+    - cron: "0 8 * * 1"
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list branches without deleting)"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      days_threshold:
+        description: "Delete branches inactive for more than N days"
+        required: true
+        default: "30"
+
+permissions:
+  contents: write   # needed to delete remote branches
+
+env:
+  # Branches that will NEVER be deleted
+  PROTECTED_BRANCHES: "main master develop staging production release"
+  # Default age threshold (days) — can be overridden via workflow_dispatch
+  DAYS_THRESHOLD: ${{ github.event.inputs.days_threshold || '30' }}
+  DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+
+jobs:
+  cleanup-branches:
+    name: Clean Up Stale Remote Branches
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # fetch all history and branches
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Display cleanup configuration
+        run: |
+          echo "================================================"
+          echo "  🧹 Branch Cleanup Configuration"
+          echo "================================================"
+          echo "  Dry Run          : $DRY_RUN"
+          echo "  Days threshold   : $DAYS_THRESHOLD days"
+          echo "  Protected branches: $PROTECTED_BRANCHES"
+          echo "  Triggered by     : ${{ github.event_name }}"
+          echo "  Run date         : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "================================================"
+
+      - name: List all remote branches
+        run: |
+          echo "📋 All remote branches:"
+          git branch -r | grep -v 'HEAD' | sed 's/origin\///' | sort
+
+      - name: Identify and delete stale branches
+        id: cleanup
+        run: |
+          set -e
+
+          DELETED=0
+          SKIPPED=0
+          STALE_BRANCHES=()
+          CUTOFF_DATE=$(date -d "$DAYS_THRESHOLD days ago" '+%s')
+
+          echo ""
+          echo "🔍 Scanning branches older than $DAYS_THRESHOLD days..."
+          echo ""
+
+          # Fetch pruned remote refs
+          git fetch --prune origin
+
+          for REMOTE_BRANCH in $(git branch -r | grep -v 'HEAD' | sed 's/origin\///'); do
+            # Skip protected branches
+            IS_PROTECTED=false
+            for PROTECTED in $PROTECTED_BRANCHES; do
+              if [ "$REMOTE_BRANCH" = "$PROTECTED" ]; then
+                IS_PROTECTED=true
+                break
+              fi
+            done
+
+            if [ "$IS_PROTECTED" = "true" ]; then
+              echo "  🔒 PROTECTED — skipping: $REMOTE_BRANCH"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+
+            # Get last commit date on this branch
+            LAST_COMMIT_DATE=$(git log -1 --format="%ct" "origin/$REMOTE_BRANCH" 2>/dev/null || echo "0")
+            LAST_COMMIT_HUMAN=$(git log -1 --format="%ci" "origin/$REMOTE_BRANCH" 2>/dev/null || echo "unknown")
+
+            if [ "$LAST_COMMIT_DATE" -lt "$CUTOFF_DATE" ]; then
+              DAYS_OLD=$(( ( $(date '+%s') - LAST_COMMIT_DATE ) / 86400 ))
+              echo "  🗑️  STALE ($DAYS_OLD days old, last commit: $LAST_COMMIT_HUMAN) — $REMOTE_BRANCH"
+              STALE_BRANCHES+=("$REMOTE_BRANCH")
+
+              if [ "$DRY_RUN" = "false" ]; then
+                git push origin --delete "$REMOTE_BRANCH"
+                echo "     ✅ Deleted: $REMOTE_BRANCH"
+                DELETED=$((DELETED + 1))
+              else
+                echo "     ℹ️  [DRY RUN] Would delete: $REMOTE_BRANCH"
+                DELETED=$((DELETED + 1))
+              fi
+            else
+              DAYS_OLD=$(( ( $(date '+%s') - LAST_COMMIT_DATE ) / 86400 ))
+              echo "  ✅ ACTIVE  ($DAYS_OLD days old) — $REMOTE_BRANCH"
+              SKIPPED=$((SKIPPED + 1))
+            fi
+          done
+
+          echo ""
+          echo "================================================"
+          echo "  📊 Cleanup Summary"
+          echo "================================================"
+          echo "  Stale branches found  : ${#STALE_BRANCHES[@]}"
+          if [ "$DRY_RUN" = "false" ]; then
+            echo "  Branches deleted      : $DELETED"
+          else
+            echo "  Branches to delete    : $DELETED  [DRY RUN — no changes made]"
+          fi
+          echo "  Branches kept (active): $SKIPPED"
+          echo "================================================"
+
+          # Save outputs
+          echo "deleted_count=$DELETED"    >> $GITHUB_OUTPUT
+          echo "skipped_count=$SKIPPED"    >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN"          >> $GITHUB_OUTPUT
+
+      - name: Post cleanup report
+        run: |
+          echo ""
+          if [ "${{ steps.cleanup.outputs.dry_run }}" = "true" ]; then
+            echo "ℹ️  Dry run completed — no branches were actually deleted."
+            echo "   Re-run with dry_run=false to perform real deletion."
+          else
+            echo "🎉 Cleanup complete!"
+            echo "   ${{ steps.cleanup.outputs.deleted_count }} stale branch(es) removed."
+          fi
+          echo "   ${{ steps.cleanup.outputs.skipped_count }} branch(es) retained."
