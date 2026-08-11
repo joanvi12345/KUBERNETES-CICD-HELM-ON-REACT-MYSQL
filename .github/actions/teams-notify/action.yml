@@ -1,0 +1,35 @@
+# .github/actions/teams-notify/action.yml
+# Custom GitHub Action — Microsoft Teams Notification
+#
+# Sends an HTTP POST to a Power Automate / Teams Incoming Webhook
+# whenever this action is called from a workflow.
+
+name: "Teams Notification"
+description: "Sends a push-event notification to a Microsoft Teams channel via Power Automate webhook."
+
+inputs:
+  webhook_url:
+    description: "Power Automate / Teams incoming webhook URL (pass via secrets)."
+    required: true
+  repository:
+    description: "Full repository name (e.g. owner/repo)."
+    required: true
+  branch:
+    description: "Name of the branch that was pushed."
+    required: true
+  author:
+    description: "GitHub username of the person who triggered the push."
+    required: true
+  commit_sha:
+    description: "Full SHA of the HEAD commit."
+    required: true
+  commit_message:
+    description: "Commit message of the HEAD commit."
+    required: true
+
+runs:
+  # node20 is the latest Node.js runtime officially supported by GitHub Actions.
+  # Node 24 is not yet available as an Actions runner; node20 ships Node 20 LTS
+  # which already includes the native fetch API used in index.js.
+  using: "node20"
+  main: "index.js"

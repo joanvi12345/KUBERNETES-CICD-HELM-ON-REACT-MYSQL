@@ -1,0 +1,40 @@
+name: Teams Notification on Push
+
+# ─── Trigger ──────────────────────────────────────────────────────────────────
+# This workflow runs ONLY when code is pushed to the main branch.
+on:
+  push:
+    branches:
+      - main
+
+# ─── Job ──────────────────────────────────────────────────────────────────────
+jobs:
+  notify-teams:
+    name: Send Microsoft Teams Notification
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1 — Check out the repository so the local action is available.
+      # GitHub Actions requires the repo to be checked out before a local
+      # action (uses: ./.github/actions/...) can be loaded.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2 — Call the custom local action.
+      # The path is relative to the root of the checked-out repository.
+      # GitHub Actions reads action.yml from this folder, then runs index.js
+      # using the node20 runtime declared in that file.
+      - name: Send notification to Microsoft Teams
+        uses: ./.github/actions/teams-notify
+        with:
+          # The webhook URL is pulled from GitHub Secrets — it is NEVER
+          # visible in logs because GitHub automatically redacts secret values.
+          webhook_url:    ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+          # All other values come from the built-in github context object.
+          # They are safe to log because they contain no sensitive data.
+          repository:     ${{ github.repository }}
+          branch:         ${{ github.ref_name }}
+          author:         ${{ github.actor }}
+          commit_sha:     ${{ github.sha }}
+          commit_message: ${{ github.event.head_commit.message }}
