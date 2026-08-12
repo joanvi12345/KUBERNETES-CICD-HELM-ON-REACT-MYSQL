@@ -1,0 +1,241 @@
+name: Monorepo — Affected Tests
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  # ─── Job 1: Detect which packages changed ──────────────────────────────────
+  # This job inspects the diff between HEAD and its base and outputs a boolean
+  # flag for each package. Downstream jobs read those flags and skip themselves
+  # when their package was not touched — avoiding unnecessary CI minutes.
+  detect-changes:
+    name: Detect Changed Packages
+    runs-on: ubuntu-latest
+
+    # Expose the filter results so other jobs can read them with:
+    #   needs.detect-changes.outputs.<filter-name>
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend:  ${{ steps.filter.outputs.backend }}
+      helm:     ${{ steps.filter.outputs.helm }}
+      ci:       ${{ steps.filter.outputs.ci }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # dorny/paths-filter compares the changed files against the path patterns
+      # defined under 'filters'. Each filter produces a 'true'/'false' output.
+      # On push events it compares HEAD^ vs HEAD.
+      # On pull_request events it compares the PR base vs HEAD.
+      - name: Detect changed packages
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            backend:
+              - 'backend/**'
+            helm:
+              - 'templates/**'
+              - 'values.yaml'
+              - 'Chart.yaml'
+              - '.helmignore'
+            ci:
+              - '.github/**'
+
+      # Print a clear summary of which packages are affected so it is easy
+      # to trace in the Actions log why certain jobs were skipped.
+      - name: Print change detection summary
+        run: |
+          echo "================================================"
+          echo "  🔍 Change Detection Results"
+          echo "================================================"
+          echo "  frontend changed : ${{ steps.filter.outputs.frontend }}"
+          echo "  backend  changed : ${{ steps.filter.outputs.backend }}"
+          echo "  helm     changed : ${{ steps.filter.outputs.helm }}"
+          echo "  ci       changed : ${{ steps.filter.outputs.ci }}"
+          echo "================================================"
+
+  # ─── Job 2: Frontend tests — only when frontend/ changed ───────────────────
+  test-frontend:
+    name: Test Frontend (React / Jest)
+    runs-on: ubuntu-latest
+    needs: detect-changes
+
+    # Skip this job completely when no frontend files were modified.
+    # The job appears in the UI as "skipped" (grey) rather than never scheduled,
+    # which keeps the workflow summary readable.
+    if: needs.detect-changes.outputs.frontend == 'true'
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: "[frontend] Set up Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: "[frontend] Install dependencies"
+        run: npm ci
+
+      - name: "[frontend] Run Jest tests"
+        run: npm test -- --watchAll=false --ci
+        env:
+          CI: true
+
+      - name: "[frontend] Tests passed"
+        run: echo "✅ Frontend tests passed."
+
+  # ─── Job 3: Backend tests — only when backend/ changed ─────────────────────
+  test-backend:
+    name: Test Backend (Node / Mocha)
+    runs-on: ubuntu-latest
+    needs: detect-changes
+
+    if: needs.detect-changes.outputs.backend == 'true'
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: example
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: "[backend] Set up Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: "[backend] Install dependencies"
+        run: npm ci
+
+      - name: "[backend] Create database password file"
+        run: echo -n "root" > /tmp/db-password
+
+      - name: "[backend] Run Mocha tests"
+        run: npm test
+        env:
+          CI: true
+          NODE_ENV: test
+          PORT: 8081
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: 3306
+          DATABASE_DB: example
+          DATABASE_USER: root
+          DATABASE_PASSWORD: /tmp/db-password
+
+      - name: "[backend] Tests passed"
+        run: echo "✅ Backend tests passed."
+
+  # ─── Job 4: Helm lint — only when Helm chart files changed ─────────────────
+  lint-helm:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    needs: detect-changes
+
+    if: needs.detect-changes.outputs.helm == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: "[helm] Set up Helm"
+        uses: azure/setup-helm@v4
+        with:
+          version: "latest"
+
+      - name: "[helm] Lint chart"
+        run: helm lint . --strict
+
+      - name: "[helm] Validate templates"
+        run: helm template . > /dev/null
+
+      - name: "[helm] Helm lint passed"
+        run: echo "✅ Helm chart lint passed."
+
+  # ─── Job 5: Pipeline summary ─────────────────────────────────────────────────
+  # Always runs to provide a clean summary of what was and wasn't tested.
+  monorepo-summary:
+    name: Monorepo Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, test-frontend, test-backend, lint-helm]
+    if: always()
+
+    steps:
+      - name: Print pipeline summary
+        run: |
+          # Helper: map result/skipped/null to a readable label
+          label() {
+            case "$1" in
+              success)  echo "✅ passed"  ;;
+              failure)  echo "❌ failed"  ;;
+              skipped)  echo "⏭️  skipped (no changes)" ;;
+              *)        echo "⚪ not run" ;;
+            esac
+          }
+
+          FRONTEND=$(label "${{ needs.test-frontend.result }}")
+          BACKEND=$(label "${{ needs.test-backend.result }}")
+          HELM=$(label "${{ needs.lint-helm.result }}")
+
+          echo "================================================"
+          echo "  📋 Monorepo CI Summary"
+          echo "================================================"
+          echo "  frontend/  → $FRONTEND"
+          echo "  backend/   → $BACKEND"
+          echo "  helm/      → $HELM"
+          echo "================================================"
+
+          # Write to the Actions Summary tab
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🗂️ Monorepo CI — Affected Packages
+
+          | Package    | Changed | Result |
+          |------------|---------|--------|
+          | frontend/  | ${{ needs.detect-changes.outputs.frontend }} | $FRONTEND |
+          | backend/   | ${{ needs.detect-changes.outputs.backend }}  | $BACKEND  |
+          | helm/      | ${{ needs.detect-changes.outputs.helm }}     | $HELM     |
+
+          > Only packages whose files changed were tested. Unchanged packages are shown as **skipped**.
+          EOF
+
+          # Fail the summary job if any executed job failed
+          if [ "${{ needs.test-frontend.result }}" = "failure" ] || \
+             [ "${{ needs.test-backend.result }}"  = "failure" ] || \
+             [ "${{ needs.lint-helm.result }}"     = "failure" ]; then
+            echo "❌ One or more jobs failed."
+            exit 1
+          fi
+
+          echo "✅ All executed jobs passed."
