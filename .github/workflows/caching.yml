@@ -1,0 +1,208 @@
+name: Dependency Caching Demo
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  # ─── Job 1: Frontend — actions/cache used EXPLICITLY ────────────────────────
+  # This job shows the full manual cache workflow step by step so you can see
+  # exactly how actions/cache works under the hood. It is more verbose than
+  # the setup-node built-in, but educational.
+  cache-frontend-explicit:
+    name: Frontend Cache (explicit actions/cache)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (no built-in cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # ← cache: omitted intentionally — we handle caching manually below
+
+      # ── Cache step ──────────────────────────────────────────────────────────
+      # actions/cache looks up the cache key in the GitHub cache store.
+      #
+      # key          — exact match: if found, the cache is restored and
+      #                the post-step saves are skipped (nothing changed).
+      # restore-keys — prefix fallback: used when the lock file changed but
+      #                a previous partial cache is still useful to seed
+      #                node_modules before npm ci fills the gaps.
+      #
+      # Cache key anatomy:
+      #   <runner-os>-npm-frontend-<hash of package-lock.json>
+      #
+      # The hash changes only when package-lock.json changes, so a cache hit
+      # means node_modules is already correct and npm ci runs almost instantly.
+      - name: Restore npm cache (frontend)
+        id: cache-frontend
+        uses: actions/cache@v4
+        with:
+          # Path that will be saved/restored. npm stores packages here.
+          path: frontend/node_modules
+          key: ${{ runner.os }}-npm-frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-frontend-
+
+      # Print whether we got a cache hit or a miss on this run.
+      - name: Report cache status
+        run: |
+          if [ "${{ steps.cache-frontend.outputs.cache-hit }}" = "true" ]; then
+            echo "🟢 Cache HIT  — node_modules restored from cache."
+            echo "   npm ci will verify integrity and skip downloads."
+          else
+            echo "🟡 Cache MISS — no matching cache found."
+            echo "   npm ci will download all packages and populate the cache."
+          fi
+
+      # npm ci is still the right command even on a cache hit.
+      # When node_modules is already populated it runs in seconds because it
+      # only validates the lock file rather than re-downloading packages.
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      - name: Build React application
+        run: npm run build
+        env:
+          CI: false
+
+      - name: Show timing summary
+        run: |
+          echo "✅ Frontend build complete."
+          echo "   On the NEXT push, if package-lock.json is unchanged,"
+          echo "   the Restore step will get a HIT and npm ci will be ~10x faster."
+
+  # ─── Job 2: Backend — actions/cache used EXPLICITLY ─────────────────────────
+  cache-backend-explicit:
+    name: Backend Cache (explicit actions/cache)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (no built-in cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Restore npm cache (backend)
+        id: cache-backend
+        uses: actions/cache@v4
+        with:
+          path: backend/node_modules
+          key: ${{ runner.os }}-npm-backend-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-backend-
+
+      - name: Report cache status
+        run: |
+          if [ "${{ steps.cache-backend.outputs.cache-hit }}" = "true" ]; then
+            echo "🟢 Cache HIT  — node_modules restored from cache."
+          else
+            echo "🟡 Cache MISS — downloading packages and building cache."
+          fi
+
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      - name: Verify installation
+        run: node -e "console.log('✅ Backend deps ready. Express:', require('express/package.json').version)"
+
+  # ─── Job 3: Compare setup-node built-in cache (reference job) ────────────────
+  # setup-node's 'cache' option is a thin wrapper around the same
+  # actions/cache mechanism. We show it here for comparison, so you know
+  # that both approaches cache the npm global content-addressable store
+  # (~/.npm) rather than node_modules.
+  cache-frontend-builtin:
+    name: Frontend Cache (setup-node built-in — for comparison)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # When cache: 'npm' is set, setup-node automatically:
+      #   1. Restores ~/.npm (the npm content store) keyed on package-lock.json
+      #   2. After the job, saves it back if the key was a miss
+      # This is exactly what actions/cache does in Jobs 1 and 2, just simpler.
+      - name: Set up Node.js with built-in npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --watchAll=false --ci
+        env:
+          CI: true
+
+  # ─── Job 4: Summary — explain the caching strategy ───────────────────────────
+  cache-summary:
+    name: Caching Strategy Summary
+    runs-on: ubuntu-latest
+    needs: [cache-frontend-explicit, cache-backend-explicit, cache-frontend-builtin]
+    if: always()
+
+    steps:
+      - name: Explain the caching strategy
+        run: |
+          echo "================================================"
+          echo "  📦 Dependency Caching Summary"
+          echo "================================================"
+          echo ""
+          echo "  Method A — explicit actions/cache (Jobs 1 & 2)"
+          echo "    path: <package>/node_modules"
+          echo "    key : <os>-npm-<package>-<hash(lock-file)>"
+          echo "    ✔ Full control over what is cached and when"
+          echo "    ✔ cache-hit output lets you branch logic"
+          echo "    ✔ restore-keys provide a warm-cache fallback"
+          echo ""
+          echo "  Method B — setup-node built-in (Job 3)"
+          echo "    cache: 'npm'"
+          echo "    Caches ~/.npm (global content store)"
+          echo "    ✔ One line of config"
+          echo "    ✔ Same mechanism as actions/cache internally"
+          echo ""
+          echo "  Cache invalidation:"
+          echo "    The cache key includes hashFiles(package-lock.json)."
+          echo "    Any change to dependencies → new key → cache MISS."
+          echo "    No change → same key → cache HIT → faster build."
+          echo ""
+          echo "  Results:"
+          echo "    cache-frontend-explicit : ${{ needs.cache-frontend-explicit.result }}"
+          echo "    cache-backend-explicit  : ${{ needs.cache-backend-explicit.result }}"
+          echo "    cache-frontend-builtin  : ${{ needs.cache-frontend-builtin.result }}"
+          echo "================================================"
+
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 📦 Dependency Caching Demo
+
+          | Job | Method | Cache Key |
+          |-----|--------|-----------|
+          | Frontend (explicit) | `actions/cache@v4` on `node_modules` | `<os>-npm-frontend-<lock-hash>` |
+          | Backend (explicit)  | `actions/cache@v4` on `node_modules` | `<os>-npm-backend-<lock-hash>`  |
+          | Frontend (built-in) | `setup-node cache: 'npm'`            | managed by setup-node           |
+
+          ### How it works
+          - **First run** → cache MISS → packages downloaded → cache saved for next run.
+          - **Next run, same lock file** → cache HIT → `node_modules` restored in seconds.
+          - **Lock file changes** → cache MISS → packages re-downloaded → new cache entry created.
+          EOF
