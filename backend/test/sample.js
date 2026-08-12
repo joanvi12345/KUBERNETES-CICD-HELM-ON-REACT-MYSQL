@@ -19,14 +19,15 @@ describe("API /healthz", () => {
 });
 
 describe("API /", () => {
-  it("it should return Welcome message", done => {
+  it("it should return MySQL welcome message", done => {
     chai
       .request(app)
       .get("/")
       .end((err, res) => {
         res.should.have.status(200);
-        res.should.to.be.html;
-        res.text.should.be.equal("Hello Docker World\n");
+        res.should.be.json;
+        res.body.should.have.property("message");
+        res.body.message.should.include("Hello from MySQL");
         done();
       });
   });
