@@ -12,9 +12,7 @@
 
 "use strict";
 
-// ─── 1. Read inputs from environment variables ────────────────────────────────
-// GitHub Actions maps each input declared in action.yml to an env var named:
-// INPUT_<INPUT_NAME_UPPERCASED>
+// ─── 1. Read inputs ───────────────────────────────────────────────────────────
 
 const webhookUrl    = process.env.INPUT_WEBHOOK_URL    || "";
 const repository    = process.env.INPUT_REPOSITORY     || "unknown/repo";
@@ -22,12 +20,17 @@ const branch        = process.env.INPUT_BRANCH         || "unknown";
 const author        = process.env.INPUT_AUTHOR         || "unknown";
 const commitShaFull = process.env.INPUT_COMMIT_SHA     || "";
 const commitMessage = process.env.INPUT_COMMIT_MESSAGE || "(no message)";
+const status        = (process.env.INPUT_STATUS        || "success").toLowerCase();
+const workflowName  = process.env.INPUT_WORKFLOW_NAME  || "GitHub Actions";
 
-// ─── 2. Derive a short SHA ────────────────────────────────────────────────────
+// ─── 2. Derived values ────────────────────────────────────────────────────────
 
-const shortSha = commitShaFull.slice(0, 7) || "0000000";
+const shortSha  = commitShaFull.slice(0, 7) || "0000000";
+const repoUrl   = `https://github.com/${repository}`;
+const branchUrl = `${repoUrl}/tree/${branch}`;
+const commitUrl = `${repoUrl}/commit/${commitShaFull}`;
 
-// ─── 3. Validate required inputs ──────────────────────────────────────────────
+// ─── 3. Validate ──────────────────────────────────────────────────────────────
 
 if (!webhookUrl) {
   console.error("❌ Error: webhook_url input is empty or not set.");
@@ -36,24 +39,22 @@ if (!webhookUrl) {
   process.exit(1);
 }
 
-// ─── 4. Build URLs ────────────────────────────────────────────────────────────
+// ─── 4. Status-aware styling ──────────────────────────────────────────────────
+// Each status gets a distinct emoji and label so the card is immediately
+// recognisable in the Teams channel without opening the details.
 
-const repoUrl   = `https://github.com/${repository}`;
-const branchUrl = `${repoUrl}/tree/${branch}`;
-const commitUrl = `${repoUrl}/commit/${commitShaFull}`;
+const STATUS_CONFIG = {
+  failure:   { emoji: "❌", label: "Build Failed",    color: "Attention" },
+  success:   { emoji: "✅", label: "Build Passed",    color: "Good"      },
+  cancelled: { emoji: "⚠️", label: "Build Cancelled", color: "Warning"   },
+};
+
+const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.success;
 
 // ─── 5. Build the AdaptiveCard payload ───────────────────────────────────────
-//
 // Power Automate's "Post card in a chat or channel" action calls
-// AdaptiveCard.FromJson() directly on the raw HTTP body.
-//
-// This means the ROOT of the JSON must be the AdaptiveCard itself:
-//   { "$schema": "...", "type": "AdaptiveCard", "version": "...", ... }
-//
-// Do NOT use the Bot Framework / Graph API envelope:
-//   { "type": "message", "attachments": [{ "content": { AdaptiveCard } }] }
-// That format is for the Graph /messages API and causes the error:
-//   "Property 'type' must be 'AdaptiveCard'"
+// AdaptiveCard.FromJson() directly on the HTTP request body.
+// The ROOT of the JSON must be the AdaptiveCard itself.
 
 const payload = {
   $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -61,13 +62,16 @@ const payload = {
   version: "1.4",
 
   body: [
+    // ── Title row ────────────────────────────────────────────────────────────
     {
       type: "TextBlock",
-      text: "🚀 New GitHub Push",
+      text: `${cfg.emoji} ${cfg.label} — ${workflowName}`,
       weight: "Bolder",
       size: "Large",
+      color: cfg.color,
       wrap: true
     },
+    // ── Key facts ─────────────────────────────────────────────────────────────
     {
       type: "FactSet",
       facts: [
@@ -75,7 +79,8 @@ const payload = {
         { title: "🌿 Branch",     value: branch        },
         { title: "👤 Author",     value: author        },
         { title: "🔖 Commit",     value: shortSha      },
-        { title: "💬 Message",    value: commitMessage }
+        { title: "💬 Message",    value: commitMessage },
+        { title: "📊 Status",     value: `${cfg.emoji} ${cfg.label}` },
       ]
     }
   ],
@@ -99,15 +104,16 @@ const payload = {
   ]
 };
 
-// ─── 6. Send the HTTP POST request ────────────────────────────────────────────
+// ─── 6. Send ──────────────────────────────────────────────────────────────────
 
 console.log("📨 Sending Teams notification...");
+console.log(`   Workflow   : ${workflowName}`);
+console.log(`   Status     : ${cfg.emoji} ${cfg.label}`);
 console.log(`   Repository : ${repository}`);
 console.log(`   Branch     : ${branch}`);
 console.log(`   Author     : ${author}`);
 console.log(`   Commit     : ${shortSha}`);
 console.log(`   Message    : ${commitMessage}`);
-
 // IMPORTANT: webhookUrl is intentionally NOT printed.
 
 (async () => {
@@ -125,7 +131,7 @@ console.log(`   Message    : ${commitMessage}`);
     process.exit(1);
   }
 
-  // ─── 7. Handle the HTTP response ──────────────────────────────────────────
+  // ─── 7. Handle response ────────────────────────────────────────────────────
 
   if (response.ok) {
     console.log(`✅ Teams webhook accepted the notification (HTTP ${response.status}).`);

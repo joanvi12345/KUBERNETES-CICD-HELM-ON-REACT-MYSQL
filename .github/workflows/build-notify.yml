@@ -1,0 +1,157 @@
+name: Build & Notify on Failure
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  # ─── Job 1: Build and test the frontend ─────────────────────────────────────
+  build-frontend:
+    name: Build Frontend (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --watchAll=false --ci
+        env:
+          CI: true
+
+      - name: Build application
+        run: npm run build
+        env:
+          CI: false
+
+  # ─── Job 2: Build and test the backend ──────────────────────────────────────
+  build-backend:
+    name: Build Backend (Node/Express)
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: example
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create database password file
+        run: echo -n "root" > /tmp/db-password
+
+      - name: Run tests
+        run: npm test
+        env:
+          CI: true
+          NODE_ENV: test
+          PORT: 8081
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: 3306
+          DATABASE_DB: example
+          DATABASE_USER: root
+          DATABASE_PASSWORD: /tmp/db-password
+
+  # ─── Job 3: Notify Teams on FAILURE ─────────────────────────────────────────
+  # This job runs ONLY when at least one previous job has failed.
+  # It reuses the local custom action so the webhook URL stays in secrets.
+  #
+  # Key patterns used:
+  #   needs:   [build-frontend, build-backend]   — depends on both build jobs
+  #   if:      failure()                         — runs only when any needed
+  #                                                 job has failed or been
+  #                                                 cancelled
+  notify-on-failure:
+    name: Notify Teams — Build Failed
+    runs-on: ubuntu-latest
+    needs: [build-frontend, build-backend]
+
+    # failure() evaluates to true when at least one job in 'needs' failed
+    # or was cancelled. The job is skipped entirely on green builds.
+    if: failure()
+
+    steps:
+      - name: Checkout code
+        # Required so GitHub can resolve the local action path
+        uses: actions/checkout@v4
+
+      - name: Send failure notification to Microsoft Teams
+        uses: ./.github/actions/teams-notify
+        with:
+          webhook_url:    ${{ secrets.TEAMS_WEBHOOK_URL }}
+          repository:     ${{ github.repository }}
+          branch:         ${{ github.ref_name }}
+          author:         ${{ github.actor }}
+          commit_sha:     ${{ github.sha }}
+          commit_message: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          # Pass 'failure' so the card renders with a red ❌ heading
+          status:         failure
+          workflow_name:  ${{ github.workflow }}
+
+  # ─── Job 4: Notify Teams on SUCCESS ─────────────────────────────────────────
+  # Optional — send a green card when the build is healthy.
+  # Remove or comment out this job if you only want failure alerts.
+  notify-on-success:
+    name: Notify Teams — Build Passed
+    runs-on: ubuntu-latest
+    needs: [build-frontend, build-backend]
+
+    # success() evaluates to true only when ALL needed jobs succeeded.
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send success notification to Microsoft Teams
+        uses: ./.github/actions/teams-notify
+        with:
+          webhook_url:    ${{ secrets.TEAMS_WEBHOOK_URL }}
+          repository:     ${{ github.repository }}
+          branch:         ${{ github.ref_name }}
+          author:         ${{ github.actor }}
+          commit_sha:     ${{ github.sha }}
+          commit_message: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          status:         success
+          workflow_name:  ${{ github.workflow }}

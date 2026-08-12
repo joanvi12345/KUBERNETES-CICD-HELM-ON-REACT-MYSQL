@@ -26,6 +26,14 @@ inputs:
   commit_message:
     description: "Commit message of the HEAD commit."
     required: true
+  status:
+    description: "Build status to display: 'success', 'failure', or 'cancelled'."
+    required: false
+    default: "success"
+  workflow_name:
+    description: "Name of the calling workflow (shown in the card title)."
+    required: false
+    default: "GitHub Actions"
 
 runs:
   # node20 is the latest Node.js runtime officially supported by GitHub Actions.
