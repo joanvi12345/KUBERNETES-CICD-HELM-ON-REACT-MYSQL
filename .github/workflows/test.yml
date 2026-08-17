@@ -43,6 +43,21 @@ jobs:
   test-backend:
     name: Backend Tests (Mocha / Chai)
     runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: example
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     defaults:
       run:
         working-directory: backend
@@ -61,9 +76,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create database password file
+        run: echo -n "root" > /tmp/db-password
+
       - name: Run Mocha tests
         run: npm test
         env:
           CI: true
           NODE_ENV: test
           PORT: 8081
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: 3306
+          DATABASE_DB: example
+          DATABASE_USER: root
+          DATABASE_PASSWORD: /tmp/db-password
