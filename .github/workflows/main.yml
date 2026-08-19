@@ -4,10 +4,14 @@ on:
   push:
     branches:
       - main
-      - feature/demo-testing
   pull_request:
     branches:
       - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   # ─── FASE 1: Verificación y Pruebas (Paralelo) ─────────────────────────────
@@ -49,6 +53,7 @@ jobs:
   docker:
     name: Docker Build & Push
     needs: [test, coverage, caching-demo, matrix-demo, monorepo-demo, env-vars-demo, secrets-demo]
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/docker.yml
     secrets: inherit
 
@@ -56,12 +61,13 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: [artifacts, docker]
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
 
   # ─── FASE 4: Notificación ──────────────────────────────────────────────────
   notify:
     name: Send Microsoft Teams Notification
     needs: [deploy]
-    if: always()
+    if: always() && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/teams-notification.yml
     secrets: inherit
