@@ -8,6 +8,7 @@ on:
       - "frontend/**"
       - "backend/**"
       - ".github/workflows/docker.yml"
+  workflow_call:
 
 env:
   # Replace with your Docker Hub username if different from GitHub owner

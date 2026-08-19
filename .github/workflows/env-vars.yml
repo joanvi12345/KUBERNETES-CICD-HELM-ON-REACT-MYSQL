@@ -20,6 +20,7 @@ on:
         description: "Your name"
         required: false
         default: "GitHub User"
+  workflow_call:
 
 # Workflow-level environment variables
 env:

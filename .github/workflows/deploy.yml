@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_call:
 
 # Grant GITHUB_TOKEN the permissions needed to deploy to Pages
 permissions:
