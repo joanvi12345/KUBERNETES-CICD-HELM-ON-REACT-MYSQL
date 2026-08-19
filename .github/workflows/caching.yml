@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "**"
+  workflow_call:
 
 jobs:
   # ─── Job 1: Frontend — actions/cache used EXPLICITLY ────────────────────────

@@ -1,0 +1,67 @@
+name: Main CI/CD Orchestrator
+
+on:
+  push:
+    branches:
+      - main
+      - feature/demo-testing
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # ─── FASE 1: Verificación y Pruebas (Paralelo) ─────────────────────────────
+  test:
+    name: Run Unit Tests
+    uses: ./.github/workflows/test.yml
+
+  coverage:
+    name: Run Code Coverage
+    uses: ./.github/workflows/coverage.yml
+
+  caching-demo:
+    name: Run Caching Demo
+    uses: ./.github/workflows/caching.yml
+
+  matrix-demo:
+    name: Run Matrix Build Demo
+    uses: ./.github/workflows/matrix.yml
+
+  monorepo-demo:
+    name: Run Monorepo Demo
+    uses: ./.github/workflows/monorepo.yml
+
+  env-vars-demo:
+    name: Run Env Vars Demo
+    uses: ./.github/workflows/env-vars.yml
+
+  secrets-demo:
+    name: Run Secrets Demo
+    uses: ./.github/workflows/secrets.yml
+    secrets: inherit
+
+  # ─── FASE 2: Construcción y Empaquetado (Secuencial) ───────────────────────
+  artifacts:
+    name: Build & Upload Artifacts
+    needs: [test, coverage, caching-demo, matrix-demo, monorepo-demo, env-vars-demo, secrets-demo]
+    uses: ./.github/workflows/artifacts.yml
+
+  docker:
+    name: Docker Build & Push
+    needs: [test, coverage, caching-demo, matrix-demo, monorepo-demo, env-vars-demo, secrets-demo]
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+
+  # ─── FASE 3: Despliegue (Secuencial) ──────────────────────────────────────
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [artifacts, docker]
+    uses: ./.github/workflows/deploy.yml
+
+  # ─── FASE 4: Notificación ──────────────────────────────────────────────────
+  notify:
+    name: Send Microsoft Teams Notification
+    needs: [deploy]
+    if: always()
+    uses: ./.github/workflows/teams-notification.yml
+    secrets: inherit
