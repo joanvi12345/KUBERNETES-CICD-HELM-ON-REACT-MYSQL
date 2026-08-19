@@ -1,7 +1,9 @@
 name: Main CI/CD Orchestrator
 
 on:
-
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -51,6 +53,7 @@ jobs:
   docker:
     name: Docker Build & Push
     needs: [test, coverage, caching-demo, matrix-demo, monorepo-demo, env-vars-demo, secrets-demo]
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/docker.yml
     secrets: inherit
 
@@ -58,12 +61,13 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: [artifacts, docker]
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
 
   # ─── FASE 4: Notificación ──────────────────────────────────────────────────
   notify:
     name: Send Microsoft Teams Notification
     needs: [deploy]
-    if: always()
+    if: always() && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/teams-notification.yml
     secrets: inherit
