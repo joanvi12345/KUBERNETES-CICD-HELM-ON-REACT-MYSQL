@@ -1,10 +1,7 @@
 name: Build & Upload Artifacts
 
 on:
-  push:
-    branches:
-      - main
-  workflow_call:
+  workflow_call: # solo se ejecuta cuando main.yml lo llame
 
 jobs:
   # ─── Job 1: Build the React frontend ────────────────────────────────────────

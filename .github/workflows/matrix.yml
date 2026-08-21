@@ -1,13 +1,7 @@
 name: Matrix Build - Frontend Node.js Tests
 
 on:
-  push:
-    branches:
-      - "**"
-  pull_request:
-    branches:
-      - "**"
-  workflow_call:
+  workflow_call: # solo se ejecuta cuando main.yml lo llame
 
 jobs:
   test-frontend:

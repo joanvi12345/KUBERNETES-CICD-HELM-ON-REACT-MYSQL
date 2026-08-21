@@ -1,13 +1,7 @@
 name: Code Coverage Report
 
 on:
-  push:
-    branches:
-      - "**"
-  pull_request:
-    branches:
-      - "**"
-  workflow_call:
+  workflow_call: # solo se ejecuta cuando main.yml lo llame
 
 jobs:
   # ─── Job 1: Frontend coverage with Jest ─────────────────────────────────────

@@ -3,10 +3,7 @@ name: Teams Notification on Push
 # ─── Trigger ──────────────────────────────────────────────────────────────────
 # This workflow runs ONLY when code is pushed to the main branch.
 on:
-  push:
-    branches:
-      - main
-  workflow_call:
+  workflow_call: # solo se ejecuta cuando main.yml lo llame
 
 # ─── Job ──────────────────────────────────────────────────────────────────────
 jobs:
