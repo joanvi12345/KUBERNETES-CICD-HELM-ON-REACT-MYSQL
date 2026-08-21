@@ -1,10 +1,7 @@
 name: Dependency Caching Demo
 
 on:
-  push:
-    branches:
-      - "**"
-  workflow_call:
+  workflow_call: # solo se ejecuta cuando main.yml lo llame
 
 jobs:
   # ─── Job 1: Frontend — actions/cache used EXPLICITLY ────────────────────────

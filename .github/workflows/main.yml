@@ -3,10 +3,10 @@ name: Main CI/CD Orchestrator
 on:
   push:
     branches:
-      - main
+      - "**"          # cualquier rama
   pull_request:
     branches:
-      - main
+      - "**"          # cualquier PR
 
 permissions:
   contents: read
@@ -45,15 +45,17 @@ jobs:
     secrets: inherit
 
   # ─── FASE 2: Construcción y Empaquetado (Secuencial) ───────────────────────
+  # Solo se ejecuta en main o develop
   artifacts:
     name: Build & Upload Artifacts
     needs: [test, coverage, caching-demo, matrix-demo, monorepo-demo, env-vars-demo, secrets-demo]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     uses: ./.github/workflows/artifacts.yml
 
   docker:
     name: Docker Build & Push
     needs: [test, coverage, caching-demo, matrix-demo, monorepo-demo, env-vars-demo, secrets-demo]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     uses: ./.github/workflows/docker.yml
     secrets: inherit
 
